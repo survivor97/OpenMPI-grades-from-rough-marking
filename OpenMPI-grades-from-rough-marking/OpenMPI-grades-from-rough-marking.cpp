@@ -5,7 +5,8 @@
 
 enum CommunicationTag
 {
-    TAG_MASTER_SEND_TASK,
+    TAG_MASTER_SEND_ID,
+    TAG_MASTER_SEND_DATA,
     TAG_MASTER_SEND_TERMINATE,
     TAG_SLAVE_SEND_RESULT,
 };
@@ -84,7 +85,8 @@ int main(int argc, char* argv[])
         //First send
         for (int i = 1; i < world_size; i++) {
             if (nextIndexToSend < data.size()) {
-                MPI_Send(data[nextIndexToSend], NUMBER_OF_VALUES_PER_ROW, MPI_DOUBLE, i, TAG_MASTER_SEND_TASK, MPI_COMM_WORLD);
+                MPI_Send(data[nextIndexToSend], NUMBER_OF_VALUES_PER_ROW, MPI_DOUBLE, i, TAG_MASTER_SEND_DATA, MPI_COMM_WORLD);
+                MPI_Send(&nextIndexToSend, 1, MPI_INT, i, TAG_MASTER_SEND_ID, MPI_COMM_WORLD);
                 nextIndexToSend++;
             }
         }  
@@ -103,7 +105,8 @@ int main(int argc, char* argv[])
                 break;
             }
 
-            MPI_Send(data[nextIndexToSend], NUMBER_OF_VALUES_PER_ROW, MPI_DOUBLE, status.MPI_SOURCE, TAG_MASTER_SEND_TASK, MPI_COMM_WORLD);
+            MPI_Send(data[nextIndexToSend], NUMBER_OF_VALUES_PER_ROW, MPI_DOUBLE, status.MPI_SOURCE, TAG_MASTER_SEND_DATA, MPI_COMM_WORLD);
+            MPI_Send(&nextIndexToSend, 1, MPI_INT, status.MPI_SOURCE, TAG_MASTER_SEND_ID, MPI_COMM_WORLD);
             nextIndexToSend++;
         }
 
@@ -119,21 +122,40 @@ int main(int argc, char* argv[])
 
     //--- SLAVE -----------------------------------------------------------------------------------------
     else { 
-        while (true) {
-            int sizeCount;
+        while (true) {            
+            int sizeCountCheck;
+            int id;
+            int sizeCount = 0;
+            double* data = nullptr;
+
             MPI_Status status;
 
-            MPI_Probe(MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
-            MPI_Get_count(&status, MPI_DOUBLE, &sizeCount);
+            MPI_Probe(MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);            
 
             // Terminate !
             if (status.MPI_TAG == TAG_MASTER_SEND_TERMINATE) break;
 
-            double* data = new double[sizeCount];
+            printf("---------------------- START TASK\n");
 
-            MPI_Recv(data, sizeCount, MPI_DOUBLE, 0, TAG_MASTER_SEND_TASK, MPI_COMM_WORLD, &status);
+            if (status.MPI_TAG == TAG_MASTER_SEND_DATA) {
+                MPI_Get_count(&status, MPI_DOUBLE, &sizeCount);                
+                data = new double[sizeCount];
+                MPI_Recv(data, sizeCount, MPI_DOUBLE, 0, TAG_MASTER_SEND_DATA, MPI_COMM_WORLD, &status);
+                MPI_Probe(MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+            }
+            if (status.MPI_TAG == TAG_MASTER_SEND_ID) {
+                MPI_Recv(&id, sizeCount, MPI_INT, 0, TAG_MASTER_SEND_ID, MPI_COMM_WORLD, &status);
+            }
+            else {
+                printf("Id not received correctly. Terminating...\n");
+                MPI_Abort(MPI_COMM_WORLD, init);
+            }
+
+            printf("status count: %d\n", status.count); 
 
             printf("task %d received a chunk of size %d\n", rank, sizeCount);
+
+            assert(data != nullptr);
 
             //Debug print
             for (int i = 0; i < NUMBER_OF_VALUES_PER_ROW; i++) {
@@ -151,10 +173,12 @@ int main(int argc, char* argv[])
             average = sum / NUMBER_OF_VALUES_PER_ROW;
 
             //Debug print
-            printf("average from task %d: %lf\n", rank, average);
+            printf("(id %d) Average from task %d: %lf\n", id, rank, average);
 
             //Return response
             MPI_Send(&average, 1, MPI_DOUBLE, 0, TAG_SLAVE_SEND_RESULT, MPI_COMM_WORLD);
+
+            printf("---------------------- END TASK\n");
         }
     }
     //---------------------------------------------------------------------------------------------------
