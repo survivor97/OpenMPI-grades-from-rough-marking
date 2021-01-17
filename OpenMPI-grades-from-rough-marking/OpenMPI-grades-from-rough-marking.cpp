@@ -11,6 +11,12 @@ enum CommunicationTag
     TAG_SLAVE_SEND_RESULT,
 };
 
+struct Result
+{
+    int id;
+    double initialNormalizedScore;
+};
+
 int main(int argc, char* argv[])
 {
     int world_size;
@@ -20,7 +26,6 @@ int main(int argc, char* argv[])
     const int NUMBER_OF_VALUES_PER_ROW = 6;      
 
     //--- INITIALIZE MPI --------------------------------------------------------------------------------
-
     init = MPI_Init(&argc, &argv);
 
     if (init != MPI_SUCCESS) {
@@ -41,12 +46,15 @@ int main(int argc, char* argv[])
         FILE* dataFile;
 
         int totalSizeOfData = 0;
+        int counter = 0;
 
         fopen_s(&dataFile, "input/data_test.txt", "r");
+
         std::vector<double*> data;
+        std::vector<Result> resultData;
+
         double *row_data = (double*)malloc(NUMBER_OF_VALUES_PER_ROW * sizeof(double));
         double myDouble;
-        int counter = 0;
 
         //--- Scan data file ---
         assert(dataFile != NULL);
@@ -94,20 +102,40 @@ int main(int argc, char* argv[])
         //Wait for response and send
         while (true) {
             MPI_Status status;
-            double averageResult;
-            MPI_Recv(&averageResult, 1, MPI_DOUBLE, MPI_ANY_SOURCE, TAG_SLAVE_SEND_RESULT, MPI_COMM_WORLD, &status);
+            Result result;
 
-            printf("average received from task %d: %lf\n", status.MPI_SOURCE, averageResult);
+            MPI_Recv(&result, sizeof(Result), MPI_CHAR, MPI_ANY_SOURCE, TAG_SLAVE_SEND_RESULT, MPI_COMM_WORLD, &status);
+
+            resultData.push_back(result);
+
+            printf("Average received from task %d: %lf\n", status.MPI_SOURCE, result.initialNormalizedScore);
+
+            MPI_Send(data[nextIndexToSend], NUMBER_OF_VALUES_PER_ROW, MPI_DOUBLE, status.MPI_SOURCE, TAG_MASTER_SEND_DATA, MPI_COMM_WORLD);
+            MPI_Send(&nextIndexToSend, 1, MPI_INT, status.MPI_SOURCE, TAG_MASTER_SEND_ID, MPI_COMM_WORLD);
+            nextIndexToSend++;
 
             //Break
             if (nextIndexToSend >= data.size())
             {
                 break;
-            }
+            }        
+        }
 
-            MPI_Send(data[nextIndexToSend], NUMBER_OF_VALUES_PER_ROW, MPI_DOUBLE, status.MPI_SOURCE, TAG_MASTER_SEND_DATA, MPI_COMM_WORLD);
-            MPI_Send(&nextIndexToSend, 1, MPI_INT, status.MPI_SOURCE, TAG_MASTER_SEND_ID, MPI_COMM_WORLD);
-            nextIndexToSend++;
+        //Receive the rest of the data from the buffer
+        while (resultData.size() < data.size()) {
+            MPI_Status status;
+            Result result;
+
+            MPI_Recv(&result, sizeof(Result), MPI_CHAR, MPI_ANY_SOURCE, TAG_SLAVE_SEND_RESULT, MPI_COMM_WORLD, &status);
+
+            resultData.push_back(result);
+
+            printf("Average received from task %d: %lf\n", status.MPI_SOURCE, result.initialNormalizedScore);
+        }
+
+        //Debug print results
+        for (int i = 0; i < resultData.size(); i++) {
+            printf("result {%d} has value %lf;\n", resultData[i].id, resultData[i].initialNormalizedScore);
         }
 
         // Terminate
@@ -117,7 +145,7 @@ int main(int argc, char* argv[])
             int response;
             MPI_Send(&response, 1, MPI_CHAR, i, TAG_MASTER_SEND_TERMINATE, MPI_COMM_WORLD);
         }
-        //----------------------
+        //----------------------       
     }
 
     //--- SLAVE -----------------------------------------------------------------------------------------
@@ -172,14 +200,16 @@ int main(int argc, char* argv[])
 
             average = sum / NUMBER_OF_VALUES_PER_ROW;
 
-            //Debug print
-            printf("(id %d) Average from task %d: %lf\n", id, rank, average);
+            //Construct the result
+            Result* result = new Result;
+            result->id = id;
+            result->initialNormalizedScore = average;
 
             //Return response
-            MPI_Send(&average, 1, MPI_DOUBLE, 0, TAG_SLAVE_SEND_RESULT, MPI_COMM_WORLD);
+            MPI_Send(result, sizeof(Result), MPI_CHAR, 0, TAG_SLAVE_SEND_RESULT, MPI_COMM_WORLD);
 
             printf("---------------------- END TASK\n");
-        }
+        }        
     }
     //---------------------------------------------------------------------------------------------------
 
