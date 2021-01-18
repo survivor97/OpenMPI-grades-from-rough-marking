@@ -2,6 +2,7 @@
 #include <assert.h>
 #include <stdio.h>
 #include <vector>
+#include <queue>
 
 enum CommunicationTag
 {
@@ -16,6 +17,30 @@ struct Result
     int id;
     double initialNormalizedScore;
 };
+
+void sortResultById(std::vector<Result> &resultData) {
+    for (int i = 0; i < resultData.size() - 1; i++) {
+        for (int j = i + 1; j < resultData.size(); j++) {
+            if (resultData[i].id > resultData[j].id) {
+                Result swapResult = resultData[i];
+                resultData[i] = resultData[j];
+                resultData[j] = swapResult;
+            }
+        }
+    }
+}
+
+void sortResultByNms(std::vector<Result>& resultData) {
+    for (int i = 0; i < resultData.size() - 1; i++) {
+        for (int j = i + 1; j < resultData.size(); j++) {
+            if (resultData[i].initialNormalizedScore > resultData[j].initialNormalizedScore) {
+                Result swapResult = resultData[i];
+                resultData[i] = resultData[j];
+                resultData[j] = swapResult;
+            }
+        }
+    }
+}
 
 int main(int argc, char* argv[])
 {
@@ -99,6 +124,8 @@ int main(int argc, char* argv[])
             }
         }  
 
+        int nextId = 0;
+
         //Wait for response and send
         while (true) {
             MPI_Status status;
@@ -106,7 +133,7 @@ int main(int argc, char* argv[])
 
             MPI_Recv(&result, sizeof(Result), MPI_CHAR, MPI_ANY_SOURCE, TAG_SLAVE_SEND_RESULT, MPI_COMM_WORLD, &status);
 
-            resultData.push_back(result);
+            resultData.push_back(result);            
 
             printf("Average received from task %d: %lf\n", status.MPI_SOURCE, result.initialNormalizedScore);
 
@@ -132,6 +159,12 @@ int main(int argc, char* argv[])
 
             printf("Average received from task %d: %lf\n", status.MPI_SOURCE, result.initialNormalizedScore);
         }
+
+        //Sort by id
+        //sortResultById(resultData);
+
+        //Sort by NMS
+        sortResultByNms(resultData);
 
         //Debug print results
         for (int i = 0; i < resultData.size(); i++) {
