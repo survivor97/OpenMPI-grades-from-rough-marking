@@ -14,8 +14,9 @@ enum CommunicationTag
 
 struct Result
 {
-    int id;
-    double initialNormalizedScore;
+    int id = -1;
+    double initialNormalizedScore = -1;
+    double finalNormalizedScore = -1;
 };
 
 void sortResultById(std::vector<Result> &resultData) {
@@ -30,7 +31,7 @@ void sortResultById(std::vector<Result> &resultData) {
     }
 }
 
-void sortResultByNms(std::vector<Result>& resultData) {
+void sortResultByIns(std::vector<Result>& resultData) {
     for (int i = 0; i < resultData.size() - 1; i++) {
         for (int j = i + 1; j < resultData.size(); j++) {
             if (resultData[i].initialNormalizedScore > resultData[j].initialNormalizedScore) {
@@ -39,6 +40,39 @@ void sortResultByNms(std::vector<Result>& resultData) {
                 resultData[j] = swapResult;
             }
         }
+    }
+}
+
+void assignFns(std::vector<Result>& resultData) {
+    //Must be ordered by Ins!
+    int dataEndPointIndex = resultData.size() - 1;
+    int firstFnsFraction = 0.1 * dataEndPointIndex;
+    int secondFnsFraction = 0.3 * dataEndPointIndex;
+    int thirdFnsFraction = 0.6 * dataEndPointIndex;
+    int fourthFnsFraction = 0.8 * dataEndPointIndex;
+
+    for (int i = dataEndPointIndex; i >= 0; i--) {
+        if (i >= dataEndPointIndex - firstFnsFraction) {
+            resultData[i].finalNormalizedScore = 4;            
+        }
+        else if (i >= dataEndPointIndex - secondFnsFraction) {
+            resultData[i].finalNormalizedScore = 3;  
+        }
+        else if (i >= dataEndPointIndex - thirdFnsFraction) {
+            resultData[i].finalNormalizedScore = 2;            
+        }
+        else if (i >= dataEndPointIndex - fourthFnsFraction) {
+            resultData[i].finalNormalizedScore = 1;            
+        }
+        else {
+            resultData[i].finalNormalizedScore = 0;
+        }
+    }
+}
+
+void printResults(std::vector<Result>& resultData) {
+    for (int i = 0; i < resultData.size(); i++) {
+        printf("result {%d} has INS: %lf and FNS: %lf;\n", resultData[i].id, resultData[i].initialNormalizedScore, resultData[i].finalNormalizedScore);
     }
 }
 
@@ -163,13 +197,12 @@ int main(int argc, char* argv[])
         //Sort by id
         //sortResultById(resultData);
 
-        //Sort by NMS
-        sortResultByNms(resultData);
+        //Sort by Ins
+        sortResultByIns(resultData);
+        assignFns(resultData);
 
         //Debug print results
-        for (int i = 0; i < resultData.size(); i++) {
-            printf("result {%d} has value %lf;\n", resultData[i].id, resultData[i].initialNormalizedScore);
-        }
+        printResults(resultData);
 
         // Terminate
         printf("Sending termination...\n");
