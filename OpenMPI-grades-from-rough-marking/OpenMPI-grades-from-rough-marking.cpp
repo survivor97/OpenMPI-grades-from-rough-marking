@@ -2,7 +2,6 @@
 #include <assert.h>
 #include <stdio.h>
 #include <vector>
-#include <queue>
 
 enum CommunicationTag
 {
@@ -10,6 +9,12 @@ enum CommunicationTag
     TAG_MASTER_SEND_DATA,
     TAG_MASTER_SEND_TERMINATE,
     TAG_SLAVE_SEND_RESULT,
+};
+
+enum WriteScores
+{
+    WRITE_ID_FNS,
+    WRITE_FNS_LIST
 };
 
 struct Result
@@ -76,6 +81,74 @@ void printResults(std::vector<Result>& resultData) {
     }
 }
 
+void readData(const char *path, int numberOfValuesPerRow, std::vector<double*> &data) {
+    printf("Reading file...\n");
+    FILE* dataFile;
+
+    double* row_data = (double*)malloc(numberOfValuesPerRow * sizeof(double));
+    double myDouble;
+
+    int totalSizeOfData = 0;
+    int counter = 0;
+
+    fopen_s(&dataFile, path, "r");
+
+    assert(dataFile != NULL);
+
+    while (fscanf_s(dataFile, "%lf", &myDouble) != EOF) {
+        assert(row_data != NULL);
+        row_data[counter] = myDouble;
+
+        if (counter < numberOfValuesPerRow - 1) {
+            counter++;
+        }
+
+        else {
+            data.push_back(row_data);
+            counter = 0;
+            row_data = (double*)malloc(numberOfValuesPerRow * sizeof(double));
+        }
+    }
+    totalSizeOfData = data.size();
+    printf("File read finished!\n");
+    fclose(dataFile);
+}
+
+void writeResultsData(const char* path, const char* write_mode, std::vector<Result> &resultData, WriteScores ws) {
+    printf("Writing results...\n");
+    FILE* resultsFile;
+
+    fopen_s(&resultsFile, path, write_mode);
+
+    assert(resultsFile != NULL);
+
+    if (ws == WRITE_ID_FNS) {
+        fprintf(resultsFile, "FNS scores by student (id FNS):\n");
+        for (int i = 0; i < resultData.size(); i++) {
+            fprintf(resultsFile, "%d; %lf\n", resultData[i].id, resultData[i].finalNormalizedScore);
+        }
+        fprintf(resultsFile, "\n");
+    }
+    else if (ws == WRITE_FNS_LIST) {        
+        fprintf(resultsFile, "List of students by FNS:\n");
+        for (int i = 0; i < resultData.size(); i++) {
+            if (i == 0) {
+                fprintf(resultsFile, "%lf; ", resultData[i].finalNormalizedScore);
+            }
+            else if (i > 0) {
+                if (resultData[i - 1].finalNormalizedScore != resultData[i].finalNormalizedScore) {
+                    fprintf(resultsFile, "\n%lf; ", resultData[i].finalNormalizedScore);
+                }
+            }
+            fprintf(resultsFile, "%d ", resultData[i].id);
+        }
+        fprintf(resultsFile, "\n\n");
+    }
+
+    printf("Writing finished!\n");
+    fclose(resultsFile);
+}
+
 int main(int argc, char* argv[])
 {
     int world_size;
@@ -101,39 +174,13 @@ int main(int argc, char* argv[])
     }
 
     //--- MASTER -----------------------------------------------------------------------------------------
-    if (rank == 0) {
-        FILE* dataFile;
-
-        int totalSizeOfData = 0;
-        int counter = 0;
-
-        fopen_s(&dataFile, "input/data_test.txt", "r");
+    if (rank == 0) {       
 
         std::vector<double*> data;
         std::vector<Result> resultData;
 
-        double *row_data = (double*)malloc(NUMBER_OF_VALUES_PER_ROW * sizeof(double));
-        double myDouble;
-
-        //--- Scan data file ---
-        assert(dataFile != NULL);
-
-        while(fscanf_s(dataFile, "%lf", &myDouble) != EOF) {
-            assert(row_data != NULL);
-            row_data[counter] = myDouble;
-
-            if (counter < NUMBER_OF_VALUES_PER_ROW -1) {      
-                counter++;
-            }
-
-            else {
-                data.push_back(row_data);
-                counter = 0;   
-                row_data = (double*)malloc(NUMBER_OF_VALUES_PER_ROW * sizeof(double));
-            }            
-        } 
-        totalSizeOfData = data.size();
-        fclose(dataFile);
+        //--- Get data from file ---
+        readData("input/data_test.txt", NUMBER_OF_VALUES_PER_ROW, data);
 
         //----- Debug prints----
         for (int i = 0; i < data.size(); i++) {
@@ -143,7 +190,6 @@ int main(int argc, char* argv[])
             printf("\n");
         }
 
-        printf("Size of data: %d\n", totalSizeOfData);
         printf("Size of world: %d\n", world_size);
 
         //----- MPI-------------
@@ -194,15 +240,21 @@ int main(int argc, char* argv[])
             printf("Average received from task %d: %lf\n", status.MPI_SOURCE, result.initialNormalizedScore);
         }
 
-        //Sort by id
-        //sortResultById(resultData);
-
         //Sort by Ins
         sortResultByIns(resultData);
         assignFns(resultData);
+        writeResultsData("results.txt", "w", resultData, WRITE_FNS_LIST);
+
+        //Sort by id
+        sortResultById(resultData);
+        //Write
+        writeResultsData("results.txt", "a", resultData, WRITE_ID_FNS);
 
         //Debug print results
-        printResults(resultData);
+        //printResults(resultData);
+
+        //Write results in a txt file
+        //writeResultsData("results.txt", "a", resultData, WRITE_FNS_LIST);
 
         // Terminate
         printf("Sending termination...\n");
